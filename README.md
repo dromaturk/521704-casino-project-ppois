@@ -1,1 +1,1 @@
-# 521704-casino-project-ppois
+# 521704-jrpg-std-ppois
