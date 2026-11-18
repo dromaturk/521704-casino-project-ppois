@@ -1,0 +1,333 @@
+#include <iostream>
+#include <fstream>
+#include <string>
+#include <random>
+#include <thread>
+#include <chrono>
+#include <limits>
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
+using namespace std;
+
+const string SAVE_FILE = "save.txt";
+const string NAMES[3] = { "Петух", "Мужик", "Пахан" };
+const long long START_COINS[3] = { 100, 1000, 10000 };
+const int BETS[4] = { 1, 10, 100, 1000 };
+
+// ---------- Имущество и рынок ----------
+// Цена указана в монетах. При продаже игрок получает 60% стоимости.
+struct Item {
+    string name;
+    long long price;
+};
+
+// Общий каталог рынка. Индексы предметов используются в стартовых наборах.
+const Item ITEMS[] = {
+    {"Тостер", 15},
+    {"Электрический чайник", 20},
+    {"Старая микроволновка", 35},
+    {"Пылесос", 45},
+    {"Утюг", 50},
+    {"Холодильник", 100},
+    {"Стиральная машина", 140},
+    {"Игровая приставка", 180},
+    {"Телевизор", 200},
+    {"Велосипед", 220},
+    {"Ноутбук", 300},
+    {"Смартфон", 350},
+    {"Мотоцикл", 600},
+    {"Скутер", 450},
+    {"Гараж", 900},
+    {"Старая легковая машина", 1200},
+    {"Новая легковая машина", 3500},
+    {"Пикап", 5000},
+    {"Небольшой дачный дом", 6500},
+    {"Однокомнатная квартира", 8000},
+    {"Катер", 10000},
+    {"Загородный коттедж", 18000},
+    {"Спортивный автомобиль", 25000},
+    {"Двухкомнатная квартира", 30000},
+    {"Моторная яхта", 50000},
+    {"Пентхаус", 75000},
+    {"Особняк", 100000},
+    {"Вертолёт", 150000},
+    {"Частный самолёт", 250000},
+    {"Остров", 500000}
+};
+const int ITEM_COUNT = sizeof(ITEMS) / sizeof(ITEMS[0]);
+
+// У каждого персонажа свой стартовый набор имущества.
+// Петух начинает с недорогими вещами, Мужик — с техникой и транспортом,
+// Пахан — с дорогой недвижимостью и транспортом.
+const int START_ITEMS[3][8] = {
+    {0, 1, 2, 3, 4, 5, 6, 9},
+    {5, 6, 8, 10, 11, 13, 15, 18},
+    {16, 19, 21, 22, 23, 25, 26, 27}
+};
+
+bool owns[ITEM_COUNT] = {};
+
+int readInt(const string& prompt, int lo, int hi);
+
+long long sellPrice(int itemIndex) {
+    return ITEMS[itemIndex].price * 60 / 100;
+}
+
+void giveStartingItems(int character) {
+    for (int i = 0; i < ITEM_COUNT; ++i) owns[i] = false;
+    for (int itemIndex : START_ITEMS[character - 1])
+        owns[itemIndex] = true;
+}
+
+void showInventory() {
+    cout << "\n========== ВАШЕ ИМУЩЕСТВО ==========\n";
+    bool hasItems = false;
+    long long total = 0;
+    for (int i = 0; i < ITEM_COUNT; ++i) {
+        if (owns[i]) {
+            hasItems = true;
+            total += ITEMS[i].price;
+            cout << i + 1 << ". " << ITEMS[i].name
+                << " | цена: " << ITEMS[i].price
+                << " | продажа: " << sellPrice(i) << " монет\n";
+        }
+    }
+    if (!hasItems) cout << "У вас пока нет имущества.\n";
+    cout << "Общая стоимость имущества по каталогу: " << total << " монет\n";
+}
+
+void market(long long& coins) {
+    while (true) {
+        cout << "\n============== РЫНОК ==============\n";
+        cout << "Ваш баланс: " << coins << " монет\n";
+        cout << "1. Купить имущество\n";
+        cout << "2. Продать имущество\n";
+        cout << "3. Посмотреть своё имущество\n";
+        cout << "0. Вернуться к игре\n";
+        int action = readInt("Выбор: ", 0, 3);
+        if (action == 0) return;
+
+        if (action == 3) {
+            showInventory();
+        }
+        else if (action == 1) {
+            cout << "\n-------------- ПОКУПКА -------------\n";
+            for (int i = 0; i < ITEM_COUNT; ++i) {
+                cout << i + 1 << ". " << ITEMS[i].name
+                    << " | " << ITEMS[i].price << " монет";
+                if (owns[i]) cout << " [уже куплено]";
+                else if (ITEMS[i].price > coins) cout << " [не хватает монет]";
+                cout << "\n";
+            }
+            cout << "0. Назад\n";
+            int choice = readInt("Что купить: ", 0, ITEM_COUNT);
+            if (choice == 0) continue;
+            int index = choice - 1;
+            if (owns[index]) {
+                cout << "У вас уже есть этот предмет.\n";
+            }
+            else if (coins < ITEMS[index].price) {
+                cout << "Недостаточно монет для покупки.\n";
+            }
+            else {
+                coins -= ITEMS[index].price;
+                owns[index] = true;
+                cout << "Покупка успешна: " << ITEMS[index].name
+                    << ". Списано " << ITEMS[index].price << " монет.\n";
+            }
+        }
+        else if (action == 2) {
+            showInventory();
+            cout << "\nВведите номер предмета для продажи (0 - назад):\n";
+            int choice = readInt("Продать: ", 0, ITEM_COUNT);
+            if (choice == 0) continue;
+            int index = choice - 1;
+            if (!owns[index]) {
+                cout << "У вас нет этого предмета.\n";
+            }
+            else {
+                long long income = sellPrice(index);
+                owns[index] = false;
+                coins += income;
+                cout << "Вы продали «" << ITEMS[index].name
+                    << "\" за " << income << " монет.\n";
+            }
+        }
+    }
+}
+
+// ---------- Сохранение / загрузка ----------
+// Старые сохранения (только персонаж и монеты) тоже поддерживаются.
+bool loadGame(int& character, long long& coins) {
+    ifstream f(SAVE_FILE);
+    if (!f) return false;
+    if (!(f >> character >> coins)) return false;
+    if (character < 1 || character > 3 || coins < 0) return false;
+
+    for (int i = 0; i < ITEM_COUNT; ++i) owns[i] = false;
+    // Если в старом сохранении нет списка имущества, выдаём стартовый набор.
+    bool hasInventoryData = false;
+    for (int i = 0; i < ITEM_COUNT; ++i) {
+        int value;
+        if (!(f >> value)) break;
+        hasInventoryData = true;
+        owns[i] = (value == 1);
+    }
+    if (!hasInventoryData) giveStartingItems(character);
+    return true;
+}
+
+void saveGame(int character, long long coins) {
+    ofstream f(SAVE_FILE, ios::trunc);
+    f << character << "\n" << coins << "\n";
+    for (int i = 0; i < ITEM_COUNT; ++i)
+        f << (owns[i] ? 1 : 0) << (i + 1 == ITEM_COUNT ? '\n' : ' ');
+}
+
+// ---------- Ввод ----------
+int readInt(const string& prompt, int lo, int hi) {
+    while (true) {
+        cout << prompt;
+        string line;
+        if (!getline(cin, line)) exit(0);
+        try {
+            size_t pos;
+            int v = stoi(line, &pos);
+            if (pos == line.size() && v >= lo && v <= hi) return v;
+        }
+        catch (...) {}
+        cout << "Некорректный ввод. Введите число от " << lo << " до " << hi << ".\n";
+    }
+}
+
+int chooseCharacter() {
+    cout << "\nВыберите персонажа:\n";
+    for (int i = 0; i < 3; i++)
+        cout << "  " << i + 1 << ". " << NAMES[i] << " - "
+        << START_COINS[i] << " монет\n";
+    return readInt("Ваш выбор: ", 1, 3);
+}
+
+// ---------- Один спин ----------
+void spin(mt19937& rng, int d[3]) {
+    uniform_int_distribution<int> dist(0, 9);
+    cout << "\n  [ ";
+    cout.flush();
+    for (int i = 0; i < 3; i++) {
+        this_thread::sleep_for(chrono::milliseconds(700));
+        d[i] = dist(rng);
+        cout << d[i] << " ";
+        cout.flush();
+    }
+    cout << "]\n\n";
+}
+
+int main() {
+#ifdef _WIN32
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
+#endif
+    mt19937 rng(random_device{}());
+
+    int character = 0;
+    long long coins = 0;
+    bool haveSave = loadGame(character, coins);
+
+    while (true) {
+        // ----- Выбор персонажа / продолжение -----
+        bool cont = false;
+        if (haveSave && coins > 0) {
+            cout << "Найдено сохранение: " << NAMES[character - 1]
+                << ", монет: " << coins << "\n";
+            cout << "  1. Продолжить\n  2. Новая игра\n";
+            cont = (readInt("Ваш выбор: ", 1, 2) == 1);
+        }
+        if (!cont) {
+            character = chooseCharacter();
+            coins = START_COINS[character - 1];
+            giveStartingItems(character);
+            saveGame(character, coins);
+        }
+
+        // ----- Уровень сложности -----
+        int level = readInt("\nВыберите уровень сложности (1-9): ", 1, 9);
+        long long winMult = level * 11;
+        long long maxMult = level * 111;
+        cout << "Обычная победа: x" << winMult
+            << ", MAXWIN (000): x" << maxMult << "\n";
+
+        // ----- Игровой цикл -----
+        while (coins > 0) {
+            cout << "\n==============================\n";
+            cout << NAMES[character - 1] << " | Монет: " << coins
+                << " | Уровень: " << level << "\n";
+            cout << "1. Крутить барабаны\n";
+            cout << "2. Открыть рынок\n";
+            cout << "0. Сохранить и выйти\n";
+            int action = readInt("Ваш выбор: ", 0, 2);
+
+            if (action == 0) {
+                saveGame(character, coins);
+                cout << "Игра сохранена. До встречи!\n";
+                return 0;
+            }
+            if (action == 2) {
+                market(coins);
+                saveGame(character, coins);
+                continue;
+            }
+
+            // Доступные ставки
+            int avail[4], n = 0;
+            for (int b : BETS)
+                if (b <= coins) avail[n++] = b;
+
+            cout << "Ставка:";
+            for (int i = 0; i < n; i++) cout << " " << avail[i];
+            cout << "\n";
+
+            int bet;
+            while (true) {
+                bet = readInt("Ваша ставка: ", 0, 1000);
+                if (bet == 0) break;
+                bool ok = false;
+                for (int i = 0; i < n; i++) ok = ok || (avail[i] == bet);
+                if (ok) break;
+                cout << "Такая ставка недоступна.\n";
+            }
+            if (bet == 0) {
+                saveGame(character, coins);
+                cout << "Игра сохранена. До встречи!\n";
+                return 0;
+            }
+
+            int d[3];
+            spin(rng, d);
+
+            if (d[0] == d[1] && d[1] == d[2]) {
+                if (d[0] == 0) {
+                    long long win = bet * maxMult;
+                    coins += win;
+                    cout << "*** MAXWIN!!! *** +" << win << " монет\n";
+                }
+                else {
+                    long long win = bet * winMult;
+                    coins += win;
+                    cout << "Победа! +" << win << " монет\n";
+                }
+            }
+            else {
+                coins -= bet;
+                cout << "Проигрыш. -" << bet << " монет\n";
+            }
+            saveGame(character, coins);
+        }
+
+        // ----- Банкротство -----
+        cout << "\nУ вас закончились монеты. Игра окончена!\n";
+        saveGame(character, 0);
+        haveSave = true;
+    }
+}
